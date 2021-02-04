@@ -25,6 +25,7 @@ var (
 	state    string
 	notFound error
 	domain   string
+	port     string
 )
 
 func init() {
@@ -46,6 +47,11 @@ func init() {
 	notFound = fmt.Errorf("Not found")
 
 	domain = os.Getenv("DOMAIN")
+
+	port = os.Getenv("PORT")
+	if port == "" {
+		port = "8888"
+	}
 }
 
 type apiRequest struct {
@@ -703,5 +709,5 @@ func main() {
 	r.PATCH("/api/v1/sort", sortEndpoint)
 	r.POST("/api/v1/clone", cloneEndpoint)
 	r.PATCH("/api/v1/noTotoAfrica", noTotoAfricaEndpoint)
-	r.Run(":8888") // listen and serve on 0.0.0.0:8080 (for windows "localhost:8080")
+	r.Run(fmt.Sprintf(":%s", port)) // listen and serve on 0.0.0.0:8080 (for windows "localhost:8080")
 }
