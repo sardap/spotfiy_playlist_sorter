@@ -1,19 +1,23 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
 	"sort"
 	"time"
 
-	b64 "encoding/base64"
-
 	"github.com/gin-gonic/gin"
 	"github.com/zmb3/spotify"
 	"golang.org/x/oauth2"
+)
+
+const (
+	totoID = "2374M0fQpWi3dLnB54qaLX"
 )
 
 var (
@@ -345,56 +349,114 @@ func sortBy(
 	return nil
 }
 
-func getClientFromContex(c *gin.Context) (spotify.Client, error) {
-	tkn, err := c.Cookie("token")
-	if err != nil {
-		return spotify.Client{}, err
-	}
-	fmt.Printf("token:%s\n", tkn)
+func noTotoAfrica(
+	client spotify.Client,
+) error {
+	usr, _ := client.CurrentUser()
 
-	var authToken oauth2.Token
-	err = json.Unmarshal([]byte(tkn), &authToken)
+	pRes, err := client.GetPlaylistsForUser(usr.ID)
 	if err != nil {
-		return spotify.Client{}, err
+		return err
 	}
-	return auth.NewClient(&authToken), nil
+
+	for {
+		for _, playlist := range pRes.Playlists {
+			client.RemoveTracksFromPlaylist(playlist.ID, totoID)
+		}
+
+		if err := client.NextPage(pRes); err != nil {
+			break
+		}
+	}
+
+	return client.RemoveTracksFromLibrary(totoID)
 }
 
-func getClientFromAccessToken(code string) (spotify.Client, error) {
-	str, _ := b64.StdEncoding.DecodeString(code)
+func getClientFromToken(token []byte) (spotify.Client, error) {
+	return auth.NewClient(decodeToken(token)), nil
+}
 
-	var authToken oauth2.Token
-	err := json.Unmarshal([]byte(str), &authToken)
+func getClientFromContex(c *gin.Context) (spotify.Client, error) {
+	tknStr, err := c.Cookie("token")
 	if err != nil {
 		return spotify.Client{}, err
 	}
 
-	return auth.NewClient(&authToken), nil
+	return getClientFromToken([]byte(tknStr))
+}
+
+func encodeToken(a *oauth2.Token) []byte {
+	jsonfied, _ := json.Marshal(*a)
+
+	var result []byte
+	result = []byte(base64.StdEncoding.EncodeToString(jsonfied))
+	return result
+}
+
+func decodeToken(encodedToken []byte) *oauth2.Token {
+	token, _ := base64.StdEncoding.DecodeString(string(encodedToken))
+
+	var result oauth2.Token
+	json.Unmarshal(token, &result)
+
+	return &result
 }
 
 // the user will eventually be redirected back to your redirect URL
 // typically you'll have a handler set up like the following:
 func redirectHandler(c *gin.Context) {
 	// use the same state string here that you used to generate the URL
-	token, err := auth.Token(state, c.Request)
+	code := c.Request.URL.Query().Get("code")
+	token, err := auth.Exchange(code)
 	if err != nil {
 		http.Error(c.Writer, "Couldn't get token", http.StatusNotFound)
 		return
 	}
 
-	blob, _ := json.Marshal(token)
 	c.SetCookie(
-		"token", string(blob), 60*60, "/", domain, false, true,
+		"token", string(encodeToken(token)), 60*60, "/", domain, false, true,
 	)
 
 	c.JSON(200, gin.H{
-		"access_token": b64.StdEncoding.EncodeToString(blob),
+		"access_token": string(encodeToken(token)),
 	})
 }
 
 func loginEndpoint(c *gin.Context) {
 	url := auth.AuthURL(state)
 	c.Redirect(http.StatusPermanentRedirect, url)
+}
+
+type noTotoRequest struct {
+	apiRequest
+	playlistRequest
+}
+
+func noTotoAfricaEndpoint(c *gin.Context) {
+	var request noTotoRequest
+	body, _ := ioutil.ReadAll(c.Request.Body)
+	json.Unmarshal(body, &request)
+
+	var err error
+	var client spotify.Client
+	if request.AccessToken == "" {
+		client, err = getClientFromContex(c)
+	} else {
+		client, err = getClientFromToken([]byte(request.AccessToken))
+	}
+	if err != nil {
+		c.JSON(401, gin.H{
+			"message": "re auth",
+		})
+		return
+	}
+
+	if err := noTotoAfrica(client); err != nil {
+		log.Printf("NoToto, requestBody:%s", body)
+		return
+	}
+
+	c.JSON(204, gin.H{})
 }
 
 func validRule(rule sortRule) error {
@@ -441,7 +503,7 @@ func sortEndpoint(c *gin.Context) {
 	if request.AccessToken == "" {
 		client, err = getClientFromContex(c)
 	} else {
-		client, err = getClientFromAccessToken(request.AccessToken)
+		client, err = getClientFromToken([]byte(request.AccessToken))
 	}
 	if err != nil {
 		c.JSON(401, gin.H{
@@ -503,9 +565,10 @@ func cloneEndpoint(c *gin.Context) {
 	if request.AccessToken == "" {
 		client, err = getClientFromContex(c)
 	} else {
-		client, err = getClientFromAccessToken(request.AccessToken)
+		client, err = getClientFromToken([]byte(request.AccessToken))
 	}
 	if err != nil {
+		log.Printf("Error Auth: %s", err)
 		c.JSON(401, gin.H{
 			"message": "re auth",
 		})
@@ -568,7 +631,7 @@ func purgeEndpoint(c *gin.Context) {
 	if request.AccessToken == "" {
 		client, err = getClientFromContex(c)
 	} else {
-		client, err = getClientFromAccessToken(request.AccessToken)
+		client, err = getClientFromToken([]byte(request.AccessToken))
 	}
 	if err != nil {
 		c.JSON(401, gin.H{
@@ -639,5 +702,6 @@ func main() {
 	r.PATCH("/api/v1/purge", purgeEndpoint)
 	r.PATCH("/api/v1/sort", sortEndpoint)
 	r.POST("/api/v1/clone", cloneEndpoint)
+	r.PATCH("/api/v1/noTotoAfrica", noTotoAfricaEndpoint)
 	r.Run(":8888") // listen and serve on 0.0.0.0:8080 (for windows "localhost:8080")
 }
