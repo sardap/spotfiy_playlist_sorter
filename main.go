@@ -8,24 +8,20 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"sort"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sardap/playlist_sorter/sorter"
 	"github.com/zmb3/spotify"
 	"golang.org/x/oauth2"
-)
-
-const (
-	totoID = "2374M0fQpWi3dLnB54qaLX"
 )
 
 var (
 	auth     spotify.Authenticator
 	state    string
-	notFound error
 	domain   string
 	port     string
+	notFound error
 )
 
 func init() {
@@ -44,9 +40,9 @@ func init() {
 		os.Getenv("SPOTIFY_CLIENT_SECRET"),
 	)
 
-	notFound = fmt.Errorf("Not found")
-
 	domain = os.Getenv("DOMAIN")
+
+	notFound = fmt.Errorf("Not found")
 
 	port = os.Getenv("PORT")
 	if port == "" {
@@ -61,63 +57,6 @@ type apiRequest struct {
 type playlistRequest struct {
 	PlaylistID   string `json:"playlist_id"`
 	PlaylistName string `json:"playlist_name"`
-}
-
-type sortRule struct {
-	FeatureName string `json:"feature_name"`
-	Descending  bool   `json:"descending"`
-}
-
-func removeTracks(
-	client spotify.Client,
-	pid spotify.ID,
-	tracks []spotify.ID,
-) error {
-	var max int
-	for i := 0; i < len(tracks); i += max {
-		if i+100 < len(tracks) {
-			max = i + 100
-		} else {
-			max = len(tracks)
-		}
-
-		_, err := client.RemoveTracksFromPlaylist(pid, tracks[i:max]...)
-		if err != nil {
-			return err
-		}
-		tracks = tracks[max:]
-	}
-
-	return nil
-}
-
-func purge(
-	client spotify.Client,
-	start time.Time,
-	end time.Time,
-	pid spotify.ID,
-) error {
-	var toRemove []spotify.ID
-
-	tracks, err := client.GetPlaylistTracks(pid)
-	if err != nil {
-		return err
-	}
-
-	looped := false
-	for tracks.Next != "" || !looped {
-		looped = true
-		for _, track := range tracks.Tracks {
-			t := track.Track.Album.ReleaseDateTime()
-			if t.Before(start) || t.After(end) {
-				fmt.Printf("%s\n", track.Track.Album.ReleaseDate)
-				toRemove = append(toRemove, track.Track.ID)
-			}
-		}
-		client.NextPage(tracks)
-	}
-
-	return removeTracks(client, pid, toRemove)
 }
 
 func getPlaylistByName(
@@ -148,234 +87,6 @@ func getPlaylistByName(
 	}
 
 	return *result, nil
-}
-
-func clonePlaylist(
-	client spotify.Client,
-	sourcePlaylist spotify.ID,
-	newName string,
-) error {
-
-	user, _ := client.CurrentUser()
-
-	playlist, err := client.GetPlaylist(sourcePlaylist)
-	if err != nil {
-		return err
-	}
-
-	newPid, err := client.CreatePlaylistForUser(
-		user.ID,
-		newName,
-		"",
-		playlist.IsPublic,
-	)
-	if err != nil {
-		return err
-	}
-
-	tracks, err := client.GetPlaylistTracks(sourcePlaylist)
-	if err != nil {
-		return err
-	}
-
-	for {
-		var newTracks []spotify.ID
-		for _, track := range tracks.Tracks {
-			newTracks = append(newTracks, track.Track.ID)
-		}
-
-		client.AddTracksToPlaylist(newPid.ID, newTracks...)
-
-		if tracks.Next == "" {
-			break
-		}
-		client.NextPage(tracks)
-	}
-
-	return nil
-}
-
-type trackFun func(tracksSubset []spotify.ID)
-
-//Todo better name please
-func doForAll(ids []spotify.ID, fun trackFun) {
-	for i := 0; i < len(ids); i += 100 {
-		end := i + 100
-
-		if end > len(ids) {
-			end = len(ids)
-		}
-
-		fun(ids[i:end])
-	}
-}
-
-type trackComplete struct {
-	spotify.AudioFeatures
-	Popularity float64
-}
-
-func sortVal(rule sortRule, features *trackComplete) float64 {
-	result := float64(0)
-	var val float64
-	switch rule.FeatureName {
-	case "popularity":
-		val = float64(features.Popularity)
-	case "danceability":
-		val = float64(features.Danceability)
-		break
-	case "acousticness":
-		val = float64(features.Acousticness)
-		break
-	case "energy":
-		val = float64(features.Energy)
-		break
-	case "key":
-		val = float64(features.Key)
-		break
-	case "loudness":
-		val = float64(features.Loudness)
-		break
-	case "mode":
-		val = float64(features.Mode)
-		break
-	case "instrumentalness":
-		val = float64(features.Instrumentalness)
-		break
-	case "liveness":
-		val = float64(features.Liveness)
-		break
-	case "valence":
-		val = float64(features.Valence)
-		break
-	case "tempo":
-		val = float64(features.Tempo)
-		break
-	case "duration_ms":
-		val = float64(features.Duration)
-		break
-	}
-
-	if rule.Descending {
-		val = -val
-	}
-
-	result += val
-
-	return result
-}
-
-func sortBy(
-	client spotify.Client,
-	sourcePlaylist spotify.ID,
-	sortBy []sortRule,
-) error {
-	tracks, err := client.GetPlaylistTracks(sourcePlaylist)
-	if err != nil {
-		return err
-	}
-
-	var features []*trackComplete
-	var allTrackIds []spotify.ID
-	for {
-		var trackIds []spotify.ID
-		for _, track := range tracks.Tracks {
-			trackIds = append(trackIds, track.Track.ID)
-		}
-		allTrackIds = append(allTrackIds, trackIds...)
-
-		tmp, _ := client.GetAudioFeatures(trackIds...)
-		for i, feature := range tmp {
-			if feature == nil {
-				continue
-			}
-			//Gross and dumb
-			features = append(features, &trackComplete{
-				AudioFeatures: spotify.AudioFeatures{
-					Acousticness:     feature.Acousticness,
-					AnalysisURL:      feature.AnalysisURL,
-					Danceability:     feature.Danceability,
-					Duration:         feature.Duration,
-					Energy:           feature.Energy,
-					ID:               feature.ID,
-					Instrumentalness: feature.Instrumentalness,
-					Key:              feature.Key,
-					Liveness:         feature.Liveness,
-					Loudness:         feature.Loudness,
-					Mode:             feature.Mode,
-					Speechiness:      feature.Speechiness,
-					Tempo:            feature.Tempo,
-					TimeSignature:    feature.TimeSignature,
-					TrackURL:         feature.TrackURL,
-					URI:              feature.URI,
-					Valence:          feature.Valence,
-				},
-				Popularity: float64(tracks.Tracks[i].Track.Popularity),
-			})
-		}
-
-		if tracks.Next == "" {
-			break
-		} else {
-			client.NextPage(tracks)
-		}
-	}
-
-	sort.SliceStable(features, func(i, j int) bool {
-		var leftVal, rightVal float64
-		for _, rule := range sortBy {
-			left := sortVal(rule, features[i])
-			right := sortVal(rule, features[j])
-
-			leftVal += left
-			rightVal += right
-
-			if left != right {
-				break
-			}
-		}
-
-		return leftVal < rightVal
-	})
-
-	//Sorted order
-	var sortedTrackIds []spotify.ID
-	for _, f := range features {
-		sortedTrackIds = append(sortedTrackIds, f.ID)
-	}
-
-	doForAll(allTrackIds, func(ids []spotify.ID) {
-		client.RemoveTracksFromPlaylist(sourcePlaylist, ids...)
-	})
-
-	doForAll(sortedTrackIds, func(ids []spotify.ID) {
-		client.AddTracksToPlaylist(sourcePlaylist, ids...)
-	})
-
-	return nil
-}
-
-func noTotoAfrica(
-	client spotify.Client,
-) error {
-	usr, _ := client.CurrentUser()
-
-	pRes, err := client.GetPlaylistsForUser(usr.ID)
-	if err != nil {
-		return err
-	}
-
-	for {
-		for _, playlist := range pRes.Playlists {
-			client.RemoveTracksFromPlaylist(playlist.ID, totoID)
-		}
-
-		if err := client.NextPage(pRes); err != nil {
-			break
-		}
-	}
-
-	return client.RemoveTracksFromLibrary(totoID)
 }
 
 func getClientFromToken(token []byte) (spotify.Client, error) {
@@ -457,7 +168,7 @@ func noTotoAfricaEndpoint(c *gin.Context) {
 		return
 	}
 
-	if err := noTotoAfrica(client); err != nil {
+	if err := sorter.NoTotoAfrica(client); err != nil {
 		log.Printf("NoToto, requestBody:%s", body)
 		return
 	}
@@ -465,31 +176,10 @@ func noTotoAfricaEndpoint(c *gin.Context) {
 	c.JSON(204, gin.H{})
 }
 
-func validRule(rule sortRule) error {
-	str := rule.FeatureName
-	if str != "danceability" &&
-		str != "energy" &&
-		str != "key" &&
-		str != "loudness" &&
-		str != "mode" &&
-		str != "speechiness" &&
-		str != "acousticness" &&
-		str != "instrumentalness" &&
-		str != "liveness" &&
-		str != "valence" &&
-		str != "tempo" &&
-		str != "popularity" &&
-		str != "duration_ms" {
-		return fmt.Errorf("invalid sorting feature")
-	}
-
-	return nil
-}
-
 type sortRequest struct {
 	apiRequest
 	playlistRequest
-	SortBy []sortRule `json:"sort_rules"`
+	SortBy []sorter.SortRule `json:"sort_rules"`
 }
 
 func sortEndpoint(c *gin.Context) {
@@ -502,6 +192,15 @@ func sortEndpoint(c *gin.Context) {
 			"message": "missing sort_rules",
 		})
 		return
+	}
+
+	for _, rule := range request.SortBy {
+		if _, err := rule.Val(sorter.TrackComplete{}); err != nil {
+			c.JSON(400, gin.H{
+				"message": err.Error(),
+			})
+			return
+		}
 	}
 
 	var err error
@@ -542,15 +241,7 @@ func sortEndpoint(c *gin.Context) {
 		}
 	}
 
-	for _, rule := range request.SortBy {
-		if err := validRule(rule); err != nil {
-			c.JSON(400, gin.H{
-				"message": err.Error(),
-			})
-		}
-	}
-
-	sortBy(client, playlist.ID, request.SortBy)
+	sorter.SortBy(client, playlist.ID, request.SortBy)
 
 	c.JSON(204, gin.H{})
 }
@@ -612,7 +303,7 @@ func cloneEndpoint(c *gin.Context) {
 		newName = fmt.Sprintf("Clone of %s", playlist.Name)
 	}
 
-	clonePlaylist(client, playlist.ID, newName)
+	sorter.ClonePlaylist(client, playlist.ID, newName)
 
 	c.JSON(204, gin.H{})
 }
@@ -684,7 +375,7 @@ func purgeEndpoint(c *gin.Context) {
 		})
 		return
 	}
-	err = purge(client, start, cutoff, playlist.ID)
+	err = sorter.Purge(client, start, cutoff, playlist.ID)
 	if err != nil {
 		if err == notFound {
 			c.JSON(404, gin.H{})
