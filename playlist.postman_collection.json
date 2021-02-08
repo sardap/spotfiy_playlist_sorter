@@ -1,0 +1,143 @@
+{
+	"info": {
+		"_postman_id": "69aad408-1e19-451a-837a-595230745138",
+		"name": "playlist",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "login",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "localhost:8888/login",
+					"host": [
+						"localhost"
+					],
+					"port": "8888",
+					"path": [
+						"login"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Purge",
+			"request": {
+				"method": "PATCH",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"access_token\" : \"{{access_token}}\",\r\n    \"playlist_name\" : \"PALYLIST NAME HERE\",\r\n    \"start_time\" : \"1953-03-05\",\r\n    \"end_time\" : \"1990-12-25\"\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "localhost:8888/api/v1/purge",
+					"host": [
+						"localhost"
+					],
+					"port": "8888",
+					"path": [
+						"api",
+						"v1",
+						"purge"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Sort",
+			"request": {
+				"method": "PATCH",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"access_token\" : \"{{access_token}}\",\r\n    \"playlist_name\" : \"PALYLIST NAME HERE\",\r\n    \"sort_rules\": [\r\n        {\"feature_name\": \"explicit\", \"descending\": true},\r\n        {\"feature_name\": \"energy\", \"descending\": false}\r\n    ]\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "localhost:8888/api/v1/sort",
+					"host": [
+						"localhost"
+					],
+					"port": "8888",
+					"path": [
+						"api",
+						"v1",
+						"sort"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "NoToto",
+			"request": {
+				"method": "PATCH",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"access_token\" : \"{{access_token}}\"\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "localhost:8888/api/v1/noToto",
+					"host": [
+						"localhost"
+					],
+					"port": "8888",
+					"path": [
+						"api",
+						"v1",
+						"noToto"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Clone",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"access_token\" : \"{{access_token}}\",\r\n    \"playlist_name\" : \"PALYLIST NAME HERE\",\r\n    \"new_name\" : \"NEW NAME\"\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "localhost:8888/api/v1/clone",
+					"host": [
+						"localhost"
+					],
+					"port": "8888",
+					"path": [
+						"api",
+						"v1",
+						"clone"
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}

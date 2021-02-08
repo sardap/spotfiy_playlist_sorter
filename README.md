@@ -17,4 +17,4 @@ The SPOTIFY info you will need to get from their web developer portal.
 
 Start the program using vscode or `go run .` then make requests to the api endpoints.
 
-for the payloads look at the source code.
+for the payloads load the postman config file.
